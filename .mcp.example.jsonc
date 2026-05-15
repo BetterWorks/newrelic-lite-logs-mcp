@@ -1,0 +1,38 @@
+// Example MCP config for New Relic Lite Logs MCP.
+// 1. Replace placeholder values below with your actual credentials.
+// 2. Save as your user-local MCP config (not in version control).
+// 3. Restart VS Code and start the server.
+// Security: Never commit real API keys to git.
+{
+  "mcpServers": {
+    "newrelic-lite-logs-mcp": {
+      // Runs directly from GitHub via npx.
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "github:bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp"
+      ],
+      "env": {
+        // Recommended default. Use "cookie" only as emergency fallback.
+        "NEW_RELIC_DEFAULT_AUTH_MODE": "api_key_only",
+
+        // Replace 1234567 with your New Relic account ID. Find it at https://one.newrelic.com/admin/
+        "NEW_RELIC_ACCOUNT_ID": "1234567",
+
+        // Replace with your New Relic User API Key. Create one at https://one.newrelic.com/admin/api-tokens/user-api-key
+        // WARNING: Never commit real API keys to version control.
+        "NEW_RELIC_API_KEY": "NRUAXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+
+        // Optional fallback only. Keep empty for api_key_only mode.
+        "NEW_RELIC_COOKIE": "",
+
+        // Set to 1 only when debugging MCP server issues.
+        "NEW_RELIC_VERBOSE_LOGS": "0",
+
+        // Repo-local memory bank file. Commit this to version control once built.
+        "NR_MEMORY_BANK_PATH": "${workspaceFolder}/.newrelic/memory-bank.json"
+      }
+    }
+  }
+}

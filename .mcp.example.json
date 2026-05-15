@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "newrelic-lite-logs-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "github:bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp"],
+      "env": {
+        "NEW_RELIC_DEFAULT_AUTH_MODE": "api_key_only",
+        "NEW_RELIC_ACCOUNT_ID": "1234567",
+        "NEW_RELIC_API_KEY": "NRUAXXXXX...",
+        "NEW_RELIC_COOKIE": "",
+        "NEW_RELIC_VERBOSE_LOGS": "0",
+        "NR_MEMORY_BANK_PATH": "${workspaceFolder}/.newrelic/memory-bank.json"
+      }
+    }
+  }
+}
