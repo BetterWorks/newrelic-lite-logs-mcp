@@ -89,6 +89,21 @@ export interface MemoryBankTable {
   earliestTimestamp: string | null;
 }
 
+export interface ServiceMapping {
+  localService: string;
+  infraService?: string;
+  pods: string[];
+  containers: string[];
+  notes?: string;
+}
+
+export interface RepositoryContext {
+  localRepositoryName?: string;
+  environments: string[];
+  serviceMappings: ServiceMapping[];
+  clarifications: string[];
+}
+
 export interface MemoryBank {
   version: "1";
   builtAt: string;
@@ -101,6 +116,8 @@ export interface MemoryBank {
   tables: Record<string, MemoryBankTable>;
   /** Custom fields that appear across one or more tables. */
   globalCustomFields: string[];
+  /** User-provided repo/infra mapping clarifications used by the AI agent. */
+  repositoryContext: RepositoryContext;
   /** Human-readable summary the AI agent should read before constructing queries. */
   agentHint: string;
 }

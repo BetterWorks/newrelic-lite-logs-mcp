@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { buildZeroResultDiagnostics, discoverInfraContext, discoverLogSchema, getAccountContext } from "./log-discovery.js";
-import { buildMemoryBank, getMemoryBankPath, readMemoryBank } from "./memory-bank.js";
+import { buildZeroResultDiagnostics, getAccountContext } from "./log-discovery.js";
+import { buildMemoryBank, readMemoryBank } from "./memory-bank.js";
 import { buildClientFromEnv } from "./newrelic.js";
 import {
   decodePageToken,
@@ -32,41 +30,6 @@ const searchLogsSchema = z.object({
   pageToken: z.string().optional(),
 });
 
-const getErrorLogsSchema = z.object({
-  accountId: z.number().int().positive().optional(),
-  serviceName: z.string().optional(),
-  since: z.string().optional(),
-  until: z.string().optional(),
-  limit: z.number().int().positive().max(MAX_LIMIT).optional(),
-  pageToken: z.string().optional(),
-});
-
-const summarizePatternsSchema = z.object({
-  accountId: z.number().int().positive().optional(),
-  since: z.string().optional(),
-  until: z.string().optional(),
-  limit: z.number().int().positive().max(200).optional(),
-});
-
-const discoverInfraSchema = z.object({
-  accountId: z.number().int().positive().optional(),
-  since: z.string().optional(),
-  until: z.string().optional(),
-  outputPath: z.string().optional(),
-});
-
-const discoverLogSchemaSchema = z.object({
-  accountId: z.number().int().positive().optional(),
-  since: z.string().optional(),
-  until: z.string().optional(),
-});
-
-const accountContextSchema = z.object({
-  accountId: z.number().int().positive().optional(),
-  since: z.string().optional(),
-  until: z.string().optional(),
-});
-
 const dryRunSchema = z.object({
   query: z.string().min(1),
   since: z.string().optional(),
@@ -76,6 +39,18 @@ const dryRunSchema = z.object({
 
 const buildMemoryBankSchema = z.object({
   accountId: z.number().int().positive().optional(),
+  localRepositoryName: z.string().min(1).optional(),
+  environments: z.array(z.string().min(1)).max(30).optional(),
+  serviceMappings: z.array(
+    z.object({
+      localService: z.string().min(1),
+      infraService: z.string().min(1).optional(),
+      pods: z.array(z.string().min(1)).max(50).optional(),
+      containers: z.array(z.string().min(1)).max(50).optional(),
+      notes: z.string().optional(),
+    }),
+  ).max(300).optional(),
+  clarifications: z.array(z.string().min(1)).max(100).optional(),
 });
 
 const client = buildClientFromEnv();
@@ -109,6 +84,14 @@ function textResult(payload: unknown) {
       },
     ],
   };
+}
+
+function compactUnique(values: string[] | undefined): string[] {
+  if (!values || values.length === 0) {
+    return [];
+  }
+
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function classifyError(error: unknown): { type: string; message: string } {
@@ -212,7 +195,7 @@ async function makeDryRun(rawQuery: string, options: { since?: string; until?: s
     });
 
     if (!targetsKnownTable && !queryTargetsStandardLog) {
-      warnings.push("Query does not target any known log table. Call get_memory_bank to see available tables.");
+      warnings.push("Query does not target any known log table. Rebuild or inspect ./.newrelic/memory-bank.json.");
     }
   } else if (!/\bFROM\s+Log\b/i.test(normalizedQuery)) {
     warnings.push("Query does not explicitly target Log events.");
@@ -260,92 +243,46 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
-      name: "get_error_logs",
-      description: "Fetch recent error logs with optional service filter.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          accountId: { type: "number" },
-          serviceName: { type: "string" },
-          since: { type: "string" },
-          until: { type: "string" },
-          limit: { type: "number", maximum: MAX_LIMIT },
-          pageToken: { type: "string" },
-        },
-      },
-    },
-    {
-      name: "summarize_log_patterns",
-      description: "Summarize top error patterns by service and message.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          accountId: { type: "number" },
-          since: { type: "string" },
-          until: { type: "string" },
-          limit: { type: "number", maximum: 200 },
-        },
-      },
-    },
-    {
-      name: "discover_infra_context",
-      description: "Discover infra context from logs and write a draft context artifact.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          accountId: { type: "number" },
-          since: { type: "string" },
-          until: { type: "string" },
-          outputPath: { type: "string" },
-        },
-      },
-    },
-    {
-      name: "discover_log_schema",
-      description: "Inspect available recent log fields, likely service/environment fields, and common values.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          accountId: { type: "number" },
-          since: { type: "string" },
-          until: { type: "string" },
-        },
-      },
-    },
-    {
-      name: "get_account_context",
-      description: "Show the current New Relic account context and whether recent logs exist in the selected window.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          accountId: { type: "number" },
-          since: { type: "string" },
-          until: { type: "string" },
-        },
-      },
-    },
-    {
       name: "build_memory_bank",
       description:
-        "Discover all log event types, their schemas, custom fields, and sample values in this New Relic account, then write a persistent local context file. " +
-        "Run this once (or whenever infrastructure changes) so that subsequent queries use the correct table names and field names. " +
-        "The file is stored at NR_MEMORY_BANK_PATH or ~/.newrelic-mcp/context.json.",
+        "Build a one-time, repo-committable New Relic memory bank with infra context, log tables, log schemas, custom fields, and field samples. " +
+        "Before calling this tool, ask the user clarifying questions and pass them via localRepositoryName, environments, serviceMappings, and clarifications. " +
+        "The output must remain concise, deterministic, and machine-readable for efficient context-window usage. " +
+        "The file is stored at NR_MEMORY_BANK_PATH or ./.newrelic/memory-bank.json.",
       inputSchema: {
         type: "object",
         properties: {
           accountId: { type: "number", description: "Override the default account ID." },
+          localRepositoryName: {
+            type: "string",
+            description: "Local repository or service group name (for example: engage-api).",
+          },
+          environments: {
+            type: "array",
+            items: { type: "string" },
+            description: "Environment names relevant to this repo (for example: prod-us, prod-eu, stage).",
+          },
+          serviceMappings: {
+            type: "array",
+            description: "Mapping between local repo services and infra service/pod/container identities.",
+            items: {
+              type: "object",
+              properties: {
+                localService: { type: "string" },
+                infraService: { type: "string" },
+                pods: { type: "array", items: { type: "string" } },
+                containers: { type: "array", items: { type: "string" } },
+                notes: { type: "string" },
+              },
+              required: ["localService"],
+            },
+          },
+          clarifications: {
+            type: "array",
+            items: { type: "string" },
+            description: "Any additional human clarifications that should be persisted in short bullet form.",
+          },
         },
-      },
-    },
-    {
-      name: "get_memory_bank",
-      description:
-        "Read the locally cached New Relic context file built by build_memory_bank. " +
-        "Useful for debugging or inspecting discovered table/field mappings. " +
-        "If the file does not exist yet, this tool will tell you to run build_memory_bank first.",
-      inputSchema: {
-        type: "object",
-        properties: {},
       },
     },
     {
@@ -375,104 +312,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return textResult(result);
     }
 
-    if (name === "get_error_logs") {
-      const parsed = getErrorLogsSchema.parse(args ?? {});
-      const serviceFilter = parsed.serviceName ? ` AND (service.name = '${parsed.serviceName}' OR entity.name = '${parsed.serviceName}')` : "";
-      const query = `SELECT timestamp, severity, message, service.name, entity.name, trace.id, span.id FROM Log WHERE (severity = 'ERROR' OR level = 'error' OR message LIKE '%error%')${serviceFilter} ORDER BY timestamp DESC`;
-      const result = await executeQuery(query, parsed);
-      return textResult(result);
-    }
-
-    if (name === "summarize_log_patterns") {
-      const parsed = summarizePatternsSchema.parse(args ?? {});
-      const query = "SELECT count(*) AS count FROM Log WHERE (severity = 'ERROR' OR level = 'error' OR message LIKE '%error%') FACET service.name, entity.name, message";
-      const result = await executeQuery(query, {
-        accountId: parsed.accountId,
-        since: parsed.since,
-        until: parsed.until,
-        limit: parsed.limit ?? 50,
-      });
-
-      result.summary = `Top ${result.rows.length} error patterns across services.`;
-      return textResult(result);
-    }
-
-    if (name === "discover_infra_context") {
-      const parsed = discoverInfraSchema.parse(args ?? {});
-      const infraContext = await discoverInfraContext(client, {
-        accountId: parsed.accountId,
-        since: parsed.since,
-        until: parsed.until,
-      });
-
-      const outputPath = parsed.outputPath ?? "./infra_context.json";
-      const absolutePath = path.resolve(outputPath);
-      await mkdir(path.dirname(absolutePath), { recursive: true });
-      await writeFile(absolutePath, JSON.stringify(infraContext, null, 2), "utf8");
-
-      return textResult({
-        summary: `Discovered infra context and wrote ${absolutePath}.`,
-        infraContext,
-      });
-    }
-
-    if (name === "discover_log_schema") {
-      const parsed = discoverLogSchemaSchema.parse(args ?? {});
-      const result = await discoverLogSchema(client, parsed);
-      return textResult(result);
-    }
-
-    if (name === "get_account_context") {
-      const parsed = accountContextSchema.parse(args ?? {});
-      const result = await getAccountContext(client, parsed);
-      return textResult({
-        summary: `Account ${result.accountId} has ${result.totalLogsInWindow} logs in the selected window.`,
-        accountContext: result,
-      });
-    }
-
     if (name === "build_memory_bank") {
       const parsed = buildMemoryBankSchema.parse(args ?? {});
-      const { bank, filePath } = await buildMemoryBank(client, { accountId: parsed.accountId });
+      const { bank, filePath } = await buildMemoryBank(client, {
+        accountId: parsed.accountId,
+        localRepositoryName: parsed.localRepositoryName,
+        environments: compactUnique(parsed.environments),
+        serviceMappings: (parsed.serviceMappings ?? []).map((mapping) => ({
+          localService: mapping.localService.trim(),
+          infraService: mapping.infraService?.trim(),
+          pods: compactUnique(mapping.pods),
+          containers: compactUnique(mapping.containers),
+          notes: mapping.notes?.trim(),
+        })),
+        clarifications: compactUnique(parsed.clarifications),
+      });
       return textResult({
-        summary: `Memory bank built for account ${bank.accountId}. Found ${bank.logTables.length} log table(s): ${bank.logTables.join(", ")}.`,
+        summary:
+          `Memory bank built for account ${bank.accountId}. Found ${bank.logTables.length} log table(s): ${bank.logTables.join(", ")}. ` +
+          "Use this repo file as the single source of truth for table, field, and service mapping context.",
         filePath,
         primaryTable: bank.primaryTable,
         logTables: bank.logTables,
-        globalCustomFields: bank.globalCustomFields,
-        agentHint: bank.agentHint,
-        tableSchemas: Object.fromEntries(
-          Object.entries(bank.tables).map(([name, t]) => [
-            name,
-            {
-              estimatedRows: t.estimatedRows,
-              windowUsed: t.windowUsed,
-              customFields: t.customFields,
-              fieldSamples: t.fieldSamples,
-              totalFields: t.fields.length,
-            },
-          ]),
-        ),
-      });
-    }
-
-    if (name === "get_memory_bank") {
-      const bank = await readMemoryBank();
-      if (!bank) {
-        return textResult({
-          found: false,
-          filePath: getMemoryBankPath(),
-          message: "No memory bank found. Call build_memory_bank first to discover your New Relic log table structure.",
-        });
-      }
-
-      return textResult({
-        found: true,
-        filePath: getMemoryBankPath(),
-        builtAt: bank.builtAt,
-        accountId: bank.accountId,
-        primaryTable: bank.primaryTable,
-        logTables: bank.logTables,
+        localRepositoryName: bank.repositoryContext.localRepositoryName,
+        environments: bank.repositoryContext.environments,
+        serviceMappings: bank.repositoryContext.serviceMappings,
         globalCustomFields: bank.globalCustomFields,
         agentHint: bank.agentHint,
         tableSchemas: Object.fromEntries(

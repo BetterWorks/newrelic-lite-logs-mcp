@@ -1,0 +1,35 @@
+// Example MCP config for New Relic Lite Logs MCP. Remove comments and copy into your config. Set environment variables in shell or add it in config
+{
+  // Copy this file into your MCP config and set your environment variables in shell.
+  "mcpServers": {
+    "newrelic-lite-logs-mcp": {
+      // Runs directly from GitHub via npx.
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "github:bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp"
+      ],
+      "env": {
+        // Recommended default. Use "cookie" only as emergency fallback.
+        "NEW_RELIC_DEFAULT_AUTH_MODE": "api_key_only",
+
+        // export NEW_RELIC_ACCOUNT_ID=1234567
+        "NEW_RELIC_ACCOUNT_ID": "${env:NEW_RELIC_ACCOUNT_ID}",
+
+        // export NEW_RELIC_API_KEY=<YOUR_USER_API_KEY>
+        // Never commit real keys.
+        "NEW_RELIC_API_KEY": "${env:NEW_RELIC_API_KEY}",
+
+        // Optional fallback only. Keep empty for api_key_only mode.
+        "NEW_RELIC_COOKIE": "${env:NEW_RELIC_COOKIE}",
+
+        // Set to 1 only when debugging MCP server issues.
+        "NEW_RELIC_VERBOSE_LOGS": "0",
+
+        // Repo-local memory bank. Commit this file to avoid repeated infra/schema discovery.
+        "NR_MEMORY_BANK_PATH": "${workspaceFolder}/.newrelic/memory-bank.json"
+      }
+    }
+  }
+}

@@ -161,7 +161,7 @@ export async function discoverLogSchema(client: NewRelicClient, options: Discove
   }
 
   if (!fieldMapping.service) {
-    suggestions.push("No obvious service field was detected. Use discover_log_schema before filtering by service or pod names.");
+    suggestions.push("No obvious service field was detected. Rebuild memory bank and provide service mapping clarifications before filtering by service or pod names.");
   }
 
   if (availableFields.length === 0) {
@@ -195,7 +195,7 @@ export async function buildZeroResultDiagnostics(client: NewRelicClient, query: 
     probableCause = "No logs were found for this account and time window. This usually means the account is wrong, the window is too narrow, or ingestion is absent.";
   } else if (missingFields.length > 0) {
     probableCause = "The query references fields that are not present in recent logs for this account.";
-    suggestions.unshift(`Missing fields detected: ${missingFields.join(", ")}. Use discover_log_schema to inspect the actual log schema.`);
+    suggestions.unshift(`Missing fields detected: ${missingFields.join(", ")}. Rebuild memory bank to refresh table and schema coverage.`);
   } else {
     suggestions.unshift("The account has logs in this window, so zero results likely means the filter values or target entity name are incorrect.");
   }

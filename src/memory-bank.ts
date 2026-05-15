@@ -1,17 +1,16 @@
 /**
  * Memory bank — persistent local cache of New Relic account structure.
  *
- * The file is stored at NR_MEMORY_BANK_PATH (env) or ~/.newrelic-mcp/context.json.
+ * The file is stored at NR_MEMORY_BANK_PATH (env) or ./.newrelic/memory-bank.json.
  * It records all log-like event types, their schemas, custom fields, and sample
  * values so that an AI agent can construct correct queries without querying
  * the account on every call.
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import type { NewRelicClient } from "./newrelic.js";
-import type { MemoryBank, MemoryBankTable } from "./types.js";
+import type { MemoryBank, MemoryBankTable, RepositoryContext, ServiceMapping } from "./types.js";
 
 // ─── Standard NR log fields ─────────────────────────────────────────────────
 // These are present in almost every log event type and are not considered
@@ -228,8 +227,31 @@ function buildAgentHint(bank: Omit<MemoryBank, "agentHint">): string {
       ? `\nShared custom fields across tables: ${bank.globalCustomFields.slice(0, 12).join(", ")}.`
       : "";
 
+  const repoContextLines = [
+    bank.repositoryContext.localRepositoryName ? `Repository: ${bank.repositoryContext.localRepositoryName}` : "Repository: (not provided)",
+    bank.repositoryContext.environments.length > 0
+      ? `Environments: ${bank.repositoryContext.environments.join(", ")}`
+      : "Environments: (not provided)",
+    bank.repositoryContext.serviceMappings.length > 0
+      ? `Service mappings: ${bank.repositoryContext.serviceMappings
+          .slice(0, 15)
+          .map((mapping) => {
+            const infra = mapping.infraService ? `infra=${mapping.infraService}` : "infra=(unspecified)";
+            const pods = mapping.pods.length > 0 ? `pods=${mapping.pods.join("|")}` : "pods=(none)";
+            const containers = mapping.containers.length > 0 ? `containers=${mapping.containers.join("|")}` : "containers=(none)";
+            return `${mapping.localService} -> ${infra}; ${pods}; ${containers}`;
+          })
+          .join(" || ")}`
+      : "Service mappings: (not provided)",
+    bank.repositoryContext.clarifications.length > 0
+      ? `Clarifications: ${bank.repositoryContext.clarifications.join(" | ")}`
+      : "Clarifications: (none)",
+  ];
+
   return [
     `New Relic account ${bank.accountId} — log infrastructure summary (built ${bank.builtAt}):`,
+    ``,
+    ...repoContextLines,
     ``,
     `Log tables found:`,
     ...tableLines,
@@ -237,19 +259,21 @@ function buildAgentHint(bank: Omit<MemoryBank, "agentHint">): string {
     `Primary table (most data): ${bank.primaryTable}`,
     `All log tables: ${allTableNames}${customFieldSummary}`,
     ``,
-    `INSTRUCTIONS FOR AI AGENT:`,
+    `INSTRUCTIONS FOR AI AGENT (concise + deterministic):`,
     `1. Always query FROM ${bank.primaryTable} unless the user specifies a different environment/region.`,
     `2. To query multiple tables at once: FROM ${allTableNames.split(", ").slice(0, 3).join(", ")}`,
     `3. Use the custom fields and sample values above to build WHERE clauses.`,
-    `4. If a query returns zero results, check that you are using the correct table name and field names from this context.`,
-    `5. The MCP server auto-loads this memory bank for query routing. Run build_memory_bank again when infra changes.`,
+    `4. Use repositoryContext.serviceMappings to map local services to infra service/pod/container selectors before writing filters.`,
+    `5. If a query returns zero results, validate table names and field names from this context before guessing.`,
+    `6. Keep generated query plans short and machine-readable (prefer JSON-like key/value summaries over long prose).`,
+    `7. The MCP server auto-loads this memory bank for query routing. Run build_memory_bank again when infra changes.`,
   ].join("\n");
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export function getMemoryBankPath(): string {
-  return process.env.NR_MEMORY_BANK_PATH ?? resolve(homedir(), ".newrelic-mcp", "context.json");
+  return process.env.NR_MEMORY_BANK_PATH ?? resolve(process.cwd(), ".newrelic", "memory-bank.json");
 }
 
 export async function readMemoryBank(): Promise<MemoryBank | null> {
@@ -277,9 +301,21 @@ export async function writeMemoryBank(bank: MemoryBank): Promise<string> {
  */
 export async function buildMemoryBank(
   client: NewRelicClient,
-  options: { accountId?: number } = {},
+  options: {
+    accountId?: number;
+    localRepositoryName?: string;
+    environments?: string[];
+    serviceMappings?: ServiceMapping[];
+    clarifications?: string[];
+  } = {},
 ): Promise<{ bank: MemoryBank; filePath: string }> {
   const accountId = options.accountId ?? client.accountId;
+  const repositoryContext: RepositoryContext = {
+    localRepositoryName: options.localRepositoryName,
+    environments: options.environments ?? [],
+    serviceMappings: options.serviceMappings ?? [],
+    clarifications: options.clarifications ?? [],
+  };
 
   // Step 1: discover event types.
   const eventTypeRows = await safeRunNrql(client, "SHOW EVENT TYPES", accountId);
@@ -326,6 +362,7 @@ export async function buildMemoryBank(
     primaryTable,
     tables,
     globalCustomFields,
+    repositoryContext,
   };
 
   const bank: MemoryBank = { ...partial, agentHint: buildAgentHint(partial) };

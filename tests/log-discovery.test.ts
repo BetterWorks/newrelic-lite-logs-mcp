@@ -62,6 +62,6 @@ describe("zero-result diagnostics", () => {
 
     expect(diagnostics.missingFields).toContain("kubernetes.podName");
     expect(diagnostics.probableCause).toMatch(/not present/i);
-    expect(diagnostics.suggestions.join(" ")).toMatch(/discover_log_schema/i);
+    expect(diagnostics.suggestions.join(" ")).toMatch(/memory bank/i);
   });
 });
