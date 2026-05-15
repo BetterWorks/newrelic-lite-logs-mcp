@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "newrelic-lite-logs-mcp": {
+      "type": "stdio",
+      "command": "/Users/bhargavprajapati/.nvm/versions/node/v20.20.0/bin/node",
+      "args": [
+        "/Users/bhargavprajapati/.nvm/versions/node/v20.20.0/bin/npx",
+        "-y",
+        "github:bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp"
+      ],
+      "env": {
+        "NEW_RELIC_DEFAULT_AUTH_MODE": "api_key_only",
+        "NEW_RELIC_ACCOUNT_ID": "1867676",
+        "NEW_RELIC_API_KEY": "${env:NEW_RELIC_API_KEY}",
+        "NEW_RELIC_COOKIE": "${env:NEW_RELIC_COOKIE}",
+        "NEW_RELIC_VERBOSE_LOGS": "0"
+      }
+    }
+  }
+}

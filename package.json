@@ -1,0 +1,51 @@
+{
+  "name": "newrelic-lite-logs-mcp",
+  "version": "1.0.0",
+  "description": "Read-only MCP server for querying New Relic logs from VS Code.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "newrelic-lite-logs-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "mcp",
+    "new-relic",
+    "logs",
+    "vscode",
+    "model-context-protocol"
+  ],
+  "author": "Bhargav Prajapati",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp.git"
+  },
+  "homepage": "https://github.com/bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp/issues"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@vitest/coverage-v8": "^4.1.5",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
+  }
+}

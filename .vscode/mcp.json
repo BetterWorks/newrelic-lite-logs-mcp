@@ -1,0 +1,16 @@
+{
+  "servers": {
+    "newrelic-lite-logs-mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/dist/index.js"],
+      "env": {
+        "NEW_RELIC_DEFAULT_AUTH_MODE": "api_key_only",
+        "NEW_RELIC_ACCOUNT_ID": "${env:NEW_RELIC_ACCOUNT_ID}",
+        "NEW_RELIC_API_KEY": "${env:NEW_RELIC_API_KEY}",
+        "NEW_RELIC_COOKIE": "${env:NEW_RELIC_COOKIE}",
+        "NEW_RELIC_VERBOSE_LOGS": "0"
+      }
+    }
+  }
+}
