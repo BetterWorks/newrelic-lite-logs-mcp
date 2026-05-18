@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ensureTimeBound, enforceReadOnlyQuery, injectWindowAndLimit, redactObject } from "../src/security.js";
+import { ensureTimeBound, enforceReadOnlyQuery, injectWindowAndLimit, quoteNrql, redactObject } from "../src/security.js";
 
 describe("query guardrails", () => {
   it("rejects mutation-like query", () => {
@@ -29,5 +29,23 @@ describe("redaction", () => {
     expect(out.redactionCount).toBeGreaterThan(0);
     expect(String(out.redacted.email)).toContain("REDACTED");
     expect(String(out.redacted.cookie)).toContain("REDACTED");
+  });
+});
+
+describe("quoteNrql", () => {
+  it("wraps value in single quotes", () => {
+    expect(quoteNrql("checkout-api")).toBe("'checkout-api'");
+  });
+
+  it("escapes internal single quotes", () => {
+    expect(quoteNrql("O'Brien")).toBe("'O''Brien'");
+  });
+
+  it("strips control characters", () => {
+    expect(quoteNrql("app\x00name")).toBe("'appname'");
+  });
+
+  it("throws on values over 500 chars", () => {
+    expect(() => quoteNrql("x".repeat(501))).toThrow(/too long/i);
   });
 });

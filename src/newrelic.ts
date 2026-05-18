@@ -19,6 +19,7 @@ export interface NewRelicClient {
   authMode: AuthMode;
   verboseLogs: boolean;
   runNrql: (query: string, accountIdOverride?: number) => Promise<Array<Record<string, unknown>>>;
+  runNerdGraph: <T = unknown>(document: string, variables?: Record<string, unknown>) => Promise<T>;
 }
 
 export function buildClientFromEnv(): NewRelicClient {
@@ -39,16 +40,7 @@ export function buildClientFromEnv(): NewRelicClient {
     throw new Error("Missing NEW_RELIC_COOKIE for cookie mode.");
   }
 
-  const runNrql = async (query: string, accountIdOverride?: number): Promise<Array<Record<string, unknown>>> => {
-    const accountId = accountIdOverride ?? env.NEW_RELIC_ACCOUNT_ID;
-    const body = {
-      query: `query NrqlQuery($accountId: Int!, $nrql: Nrql!) { actor { account(id: $accountId) { nrql(query: $nrql) { results } } } }`,
-      variables: {
-        accountId,
-        nrql: query,
-      },
-    };
-
+  const buildHeaders = (): Record<string, string> => {
     const headers: Record<string, string> = {
       "content-type": "application/json",
       accept: "application/json",
@@ -65,9 +57,22 @@ export function buildClientFromEnv(): NewRelicClient {
       headers["newrelic-requesting-services"] = "nr1-ui";
     }
 
+    return headers;
+  };
+
+  const runNrql = async (query: string, accountIdOverride?: number): Promise<Array<Record<string, unknown>>> => {
+    const accountId = accountIdOverride ?? env.NEW_RELIC_ACCOUNT_ID;
+    const body = {
+      query: `query NrqlQuery($accountId: Int!, $nrql: Nrql!) { actor { account(id: $accountId) { nrql(query: $nrql) { results } } } }`,
+      variables: {
+        accountId,
+        nrql: query,
+      },
+    };
+
     const response = await fetch("https://api.newrelic.com/graphql", {
       method: "POST",
-      headers,
+      headers: buildHeaders(),
       body: JSON.stringify(body),
     });
 
@@ -88,10 +93,34 @@ export function buildClientFromEnv(): NewRelicClient {
     return json.data?.actor?.account?.nrql?.results ?? [];
   };
 
+  const runNerdGraph = async <T = unknown>(document: string, variables?: Record<string, unknown>): Promise<T> => {
+    const body = { query: document, variables: variables ?? {} };
+
+    const response = await fetch("https://api.newrelic.com/graphql", {
+      method: "POST",
+      headers: buildHeaders(),
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`New Relic request failed (${response.status}): ${text.slice(0, 500)}`);
+    }
+
+    const json = (await response.json()) as { data?: T; errors?: Array<{ message?: string }> };
+
+    if (json.errors?.length) {
+      throw new Error(`New Relic GraphQL error: ${json.errors.map((e) => e.message).join("; ")}`);
+    }
+
+    return json.data as T;
+  };
+
   return {
     accountId: env.NEW_RELIC_ACCOUNT_ID,
     authMode,
     verboseLogs: env.NEW_RELIC_VERBOSE_LOGS === "1",
     runNrql,
+    runNerdGraph,
   };
 }

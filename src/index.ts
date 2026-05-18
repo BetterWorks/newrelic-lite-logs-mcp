@@ -6,7 +6,16 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { z } from "zod";
 import { buildZeroResultDiagnostics, getAccountContext } from "./log-discovery.js";
 import { buildMemoryBank, readMemoryBank } from "./memory-bank.js";
+import { searchEntities } from "./nerdgraph.js";
 import { buildClientFromEnv } from "./newrelic.js";
+import {
+  getServiceHealthSummary,
+  getTopErrors,
+  getSlowTransactions,
+  summarizeLogErrors,
+  listActiveIncidents,
+  investigateServiceIssue,
+} from "./observability.js";
 import {
   decodePageToken,
   encodePageToken,
@@ -35,6 +44,64 @@ const dryRunSchema = z.object({
   since: z.string().optional(),
   until: z.string().optional(),
   limit: z.number().int().positive().max(MAX_LIMIT).optional(),
+});
+
+const runNrqlQuerySchema = z.object({
+  nrql: z.string().min(1),
+  accountId: z.number().int().positive().optional(),
+  since: z.string().optional(),
+  until: z.string().optional(),
+  limit: z.number().int().positive().max(MAX_LIMIT).optional(),
+});
+
+const searchEntitiesSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  type: z.string().min(1).max(50).optional(),
+  domain: z.string().min(1).max(50).optional(),
+  accountId: z.number().int().positive().optional(),
+  limit: z.number().int().positive().max(200).optional(),
+});
+
+const serviceHealthSchema = z.object({
+  entityName: z.string().min(1).max(200),
+  accountId: z.number().int().positive().optional(),
+  since: z.string().optional(),
+});
+
+const activeIncidentsSchema = z.object({
+  accountId: z.number().int().positive().optional(),
+  since: z.string().optional(),
+  limit: z.number().int().positive().max(200).optional(),
+});
+
+const logErrorsSchema = z.object({
+  entityName: z.string().min(1).max(200).optional(),
+  logTable: z.string().min(1).max(100).optional(),
+  since: z.string().optional(),
+  until: z.string().optional(),
+  limit: z.number().int().positive().max(200).optional(),
+  accountId: z.number().int().positive().optional(),
+});
+
+const topErrorsSchema = z.object({
+  entityName: z.string().min(1).max(200),
+  accountId: z.number().int().positive().optional(),
+  since: z.string().optional(),
+  limit: z.number().int().positive().max(100).optional(),
+});
+
+const slowTransactionsSchema = z.object({
+  entityName: z.string().min(1).max(200),
+  accountId: z.number().int().positive().optional(),
+  since: z.string().optional(),
+  limit: z.number().int().positive().max(100).optional(),
+});
+
+const investigateSchema = z.object({
+  entityName: z.string().min(1).max(200),
+  accountId: z.number().int().positive().optional(),
+  since: z.string().optional(),
+  limit: z.number().int().positive().max(50).optional(),
 });
 
 const buildMemoryBankSchema = z.object({
@@ -299,6 +366,143 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["query"],
       },
     },
+    {
+      name: "run_nrql_query",
+      description:
+        "Execute a read-only NRQL query for any New Relic event type (Transaction, TransactionError, Log, Metric, etc.). " +
+        "Unlike search_logs, this does not enforce time bounds or route through the memory bank. " +
+        "Use for custom aggregations, metric comparisons, and event types beyond logs.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          nrql: { type: "string", description: "Complete NRQL query. Include SINCE/UNTIL or pass since/until params." },
+          accountId: { type: "number", description: "Override the default account ID." },
+          since: { type: "string", description: "Injected as SINCE clause if not already in NRQL." },
+          until: { type: "string", description: "Injected as UNTIL clause if not already in NRQL." },
+          limit: { type: "number", maximum: MAX_LIMIT, description: "Override LIMIT in NRQL." },
+        },
+        required: ["nrql"],
+      },
+    },
+    {
+      name: "search_entities",
+      description:
+        "Search for New Relic entities (APM services, browser apps, infrastructure hosts, dashboards, etc.) by name, type, domain, or account. " +
+        "Returns entity GUID, name, type, domain, accountId, and permalink. " +
+        "Use entity GUIDs with other tools. Domain values: APM, BROWSER, INFRA, SYNTH, NR1. Type values: APPLICATION, SERVICE, HOST, DASHBOARD.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Partial name match (case-insensitive LIKE search)." },
+          type: { type: "string", description: "Entity type: APPLICATION, SERVICE, HOST, DASHBOARD, etc." },
+          domain: { type: "string", description: "Entity domain: APM, BROWSER, INFRA, SYNTH, NR1." },
+          accountId: { type: "number", description: "Filter to a specific account ID." },
+          limit: { type: "number", maximum: 200, description: "Max entities to return (default 25)." },
+        },
+      },
+    },
+    {
+      name: "get_service_health_summary",
+      description:
+        "Summarize current health for an APM service: error rate, throughput, P95 latency, and apdex score. " +
+        "entityName must match the APM application name in New Relic. " +
+        "Returns structured findings with severity (critical/warning) and recommendations.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          entityName: { type: "string", description: "APM application name (must match New Relic app name exactly)." },
+          accountId: { type: "number", description: "Override the default account ID." },
+          since: { type: "string", description: "Time window (default: 1 hour ago)." },
+        },
+        required: ["entityName"],
+      },
+    },
+    {
+      name: "list_active_incidents",
+      description:
+        "List currently active New Relic AIOps incidents/issues (requires AIOps/Applied Intelligence). " +
+        "Returns incident ID, priority, title, state, and creation time. " +
+        "Returns empty if AIOps is not enabled for the account.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          accountId: { type: "number", description: "Override the default account ID." },
+          since: { type: "string", description: "How far back to look (default: 24 hours ago)." },
+          limit: { type: "number", maximum: 200, description: "Max incidents to return (default 50)." },
+        },
+      },
+    },
+    {
+      name: "summarize_log_errors",
+      description:
+        "Group and summarize error-level log entries by message pattern. " +
+        "Filters on level/severity IN ('ERROR', 'FATAL'). " +
+        "Optionally filter by entity/service name. " +
+        "Use logTable to target a custom log event type (from memory bank).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          entityName: { type: "string", description: "Filter by entity.name or service.name." },
+          logTable: { type: "string", description: "Log event type name (default: Log). Use memory bank primaryTable for custom tables." },
+          since: { type: "string", description: "Start time (default: 1 hour ago)." },
+          until: { type: "string", description: "End time (optional)." },
+          limit: { type: "number", maximum: 200, description: "Max error groups to return (default 20)." },
+          accountId: { type: "number", description: "Override the default account ID." },
+        },
+      },
+    },
+    {
+      name: "get_top_errors",
+      description:
+        "List the most frequent error classes for an APM service from TransactionError events. " +
+        "Returns error class, count, sample message, first/last seen timestamps. " +
+        "entityName must match the APM application name.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          entityName: { type: "string", description: "APM application name." },
+          accountId: { type: "number", description: "Override the default account ID." },
+          since: { type: "string", description: "Time window (default: 1 hour ago)." },
+          limit: { type: "number", maximum: 100, description: "Max error classes to return (default 20)." },
+        },
+        required: ["entityName"],
+      },
+    },
+    {
+      name: "get_slow_transactions",
+      description:
+        "List the slowest transactions for an APM service ranked by P95 latency. " +
+        "Returns transaction name, P95ms, P99ms, request count, and error percentage. " +
+        "entityName must match the APM application name.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          entityName: { type: "string", description: "APM application name." },
+          accountId: { type: "number", description: "Override the default account ID." },
+          since: { type: "string", description: "Time window (default: 1 hour ago)." },
+          limit: { type: "number", maximum: 100, description: "Max transactions to return (default 20)." },
+        },
+        required: ["entityName"],
+      },
+    },
+    {
+      name: "investigate_service_issue",
+      description:
+        "Comprehensive service investigation: runs get_service_health_summary, get_top_errors, get_slow_transactions, summarize_log_errors, and list_active_incidents in parallel. " +
+        "Returns a structured report with findings, data, and recommendations. " +
+        "Facts are clearly separated from correlations. No root causes are inferred beyond what the data shows. " +
+        "entityName must match the APM application name.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          entityName: { type: "string", description: "APM application name to investigate." },
+          accountId: { type: "number", description: "Override the default account ID." },
+          since: { type: "string", description: "Time window for APM data (default: 1 hour ago)." },
+          limit: { type: "number", maximum: 50, description: "Max entries per data section (default 10)." },
+        },
+        required: ["entityName"],
+      },
+    },
   ],
 }));
 
@@ -357,6 +561,63 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (name === "dry_run_query") {
       const parsed = dryRunSchema.parse(args ?? {});
       return textResult(await makeDryRun(parsed.query, parsed));
+    }
+
+    if (name === "run_nrql_query") {
+      const parsed = runNrqlQuerySchema.parse(args ?? {});
+      enforceReadOnlyQuery(parsed.nrql);
+      const nrql = injectWindowAndLimit(parsed.nrql, parsed.since, parsed.until, parsed.limit ? Math.min(parsed.limit, MAX_LIMIT) : undefined);
+      const startedAt = Date.now();
+      const rows = await client.runNrql(nrql, parsed.accountId);
+      const durationMs = Date.now() - startedAt;
+      const { redacted, redactionCount } = redactObject(rows);
+      return textResult({
+        summary: `Returned ${rows.length} row(s) in ${durationMs}ms.`,
+        query: nrql,
+        rows: redacted,
+        meta: { durationMs, rowsReturned: rows.length, redactionCount, accountId: parsed.accountId ?? client.accountId },
+      });
+    }
+
+    if (name === "search_entities") {
+      const parsed = searchEntitiesSchema.parse(args ?? {});
+      const entities = await searchEntities(client, parsed);
+      return textResult({
+        summary: entities.length === 0
+          ? "No entities found matching the search criteria."
+          : `Found ${entities.length} entity/entities.`,
+        entities,
+      });
+    }
+
+    if (name === "get_service_health_summary") {
+      const parsed = serviceHealthSchema.parse(args ?? {});
+      return textResult(await getServiceHealthSummary(client, parsed));
+    }
+
+    if (name === "list_active_incidents") {
+      const parsed = activeIncidentsSchema.parse(args ?? {});
+      return textResult(await listActiveIncidents(client, parsed));
+    }
+
+    if (name === "summarize_log_errors") {
+      const parsed = logErrorsSchema.parse(args ?? {});
+      return textResult(await summarizeLogErrors(client, parsed));
+    }
+
+    if (name === "get_top_errors") {
+      const parsed = topErrorsSchema.parse(args ?? {});
+      return textResult(await getTopErrors(client, parsed));
+    }
+
+    if (name === "get_slow_transactions") {
+      const parsed = slowTransactionsSchema.parse(args ?? {});
+      return textResult(await getSlowTransactions(client, parsed));
+    }
+
+    if (name === "investigate_service_issue") {
+      const parsed = investigateSchema.parse(args ?? {});
+      return textResult(await investigateServiceIssue(client, parsed));
     }
 
     throw new Error(`Unknown tool: ${name}`);

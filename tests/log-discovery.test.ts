@@ -54,6 +54,7 @@ describe("zero-result diagnostics", () => {
       authMode: "api_key_only",
       verboseLogs: false,
       runNrql: async (query) => responses.get(query) ?? [],
+      runNerdGraph: async () => { throw new Error("Not implemented in this test"); },
     };
 
     const diagnostics = await buildZeroResultDiagnostics(client, "SELECT * FROM Log WHERE kubernetes.podName = 'engage-api-jobs'", {

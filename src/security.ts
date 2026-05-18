@@ -164,3 +164,11 @@ export function redactObject<T>(input: T): { redacted: T; redactionCount: number
 
   return { redacted: visit(input) as T, redactionCount };
 }
+
+export function quoteNrql(value: string): string {
+  if (value.length > 500) {
+    throw new Error("Value too long for NRQL string literal (max 500 chars).");
+  }
+  const sanitized = value.replace(/[\x00-\x1f\x7f]/g, "");
+  return `'${sanitized.replace(/'/g, "''")}'`;
+}

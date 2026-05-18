@@ -31,11 +31,11 @@
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp.git"
+    "url": "git+https://github.com/BetterWorks/newrelic-lite-logs-mcp.git"
   },
-  "homepage": "https://github.com/bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp#readme",
+  "homepage": "https://github.com/BetterWorks/newrelic-lite-logs-mcp#readme",
   "bugs": {
-    "url": "https://github.com/bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp/issues"
+    "url": "https://github.com/BetterWorks/newrelic-lite-logs-mcp/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
