@@ -67,7 +67,7 @@ export NEW_RELIC_COOKIE=""
     "newrelic-lite-logs-mcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "github:bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp"],
+      "args": ["-y", "github:BetterWorks/newrelic-lite-logs-mcp"],
       "env": {
         "NEW_RELIC_DEFAULT_AUTH_MODE": "api_key_only",
         "NEW_RELIC_ACCOUNT_ID": "${env:NEW_RELIC_ACCOUNT_ID}",
@@ -164,9 +164,9 @@ Coverage artifacts are uploaded in each run.
 Choose one update mode:
 
 - Always latest code (auto-updates from default branch):
-  - `github:bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp`
+  - `github:BetterWorks/newrelic-lite-logs-mcp`
 - Pinned stable version (manual upgrade when you change the tag):
-  - `github:bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp#v1.0.1`
+  - `github:BetterWorks/newrelic-lite-logs-mcp#v1.0.1`
 
 Important:
 

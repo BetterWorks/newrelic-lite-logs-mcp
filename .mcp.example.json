@@ -3,7 +3,7 @@
     "newrelic-lite-logs-mcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "github:bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp"],
+      "args": ["-y", "github:BetterWorks/newrelic-lite-logs-mcp"],
       "env": {
         "NEW_RELIC_DEFAULT_AUTH_MODE": "api_key_only",
         "NEW_RELIC_ACCOUNT_ID": "1234567",

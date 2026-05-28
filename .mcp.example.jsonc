@@ -11,7 +11,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "github:bhargavPrajapatiBetterworks/newrelic-lite-logs-mcp"
+        "github:BetterWorks/newrelic-lite-logs-mcp"
       ],
       "env": {
         // Recommended default. Use "cookie" only as emergency fallback.
